@@ -10,8 +10,12 @@
 #define GRAVITY_ACCELERATION 50.0
 #define MAX_N_OBSTACLES 64
 
+#define PLAYER_MAX_HEALTH 100.0
+#define MAX_SPEED_WITHOUT_DAMAGE 30.0
+
 static const Color BACKGROUND_COLOR = {20, 20, 20, 255};
 static const Color OBSTACLE_COLOR = {80, 80, 80, 255};
+static const Color UI_BACKGROUND_COLOR = {40, 40, 40, 255};
 
 typedef struct Player {
     Vector2 position;
@@ -20,6 +24,9 @@ typedef struct Player {
 
     float speed;
     float jump_impulse;
+
+    float health;
+    float max_health;
 
     bool is_grounded;
 } Player;
@@ -58,6 +65,15 @@ Vector2 get_aabb_mtv(Rectangle r1, Rectangle r2) {
     else mtv.y = 0.0;
 
     return mtv;
+}
+
+Color lerp_color(Color min_color, Color max_color, float ratio) {
+    return (Color){
+        .r = (1.0 - ratio) * min_color.r + ratio * max_color.r,
+        .g = (1.0 - ratio) * min_color.g + ratio * max_color.g,
+        .b = (1.0 - ratio) * min_color.b + ratio * max_color.b,
+        .a = (1.0 - ratio) * min_color.a + ratio * max_color.a,
+    };
 }
 
 // -----------------------------------------------------------------------
@@ -111,6 +127,63 @@ void draw_obstacles(void) {
         Obstacle *obstacle = &OBSTACLES[i];
         DrawRectangleRec(obstacle->rect, OBSTACLE_COLOR);
     }
+}
+
+void draw_ui(void) {
+    static const float margin = 10.0;
+    static const float pad = 5.0;
+
+    float dt = GetFrameTime();
+
+    // -------------------------------------------------------------------
+    // healthbar
+    static const float width = 300.0;
+    static const float height = 40.0;
+    static float health_view_speed = 80.0;
+    static float health_view = PLAYER_MAX_HEALTH;
+
+    // update health view
+    if (PLAYER.health < health_view) {
+        float health_view_step = dt * health_view_speed;
+        health_view -= health_view_step;
+        health_view = health_view < PLAYER.health ? PLAYER.health : health_view;
+    } else {
+        health_view = PLAYER.health;
+    }
+
+    // background
+    Rectangle background_rect = {
+        .x = margin,
+        .y = margin,
+        .width = width,
+        .height = height,
+    };
+
+    // healthbar
+    Rectangle healthbar_rect = {
+        .x = background_rect.x + pad,
+        .y = background_rect.y + pad,
+        .width = background_rect.width - 2.0 * pad,
+        .height = background_rect.height - 2.0 * pad,
+    };
+    float health_ratio = PLAYER.health / PLAYER.max_health;
+    healthbar_rect.width *= health_ratio;
+
+    Color healthbar_color = lerp_color(RED, GREEN, health_ratio);
+
+    // difference
+    Rectangle difference_rect = {
+        .x = healthbar_rect.x,
+        .y = healthbar_rect.y,
+        .width = background_rect.width - 2.0 * pad,
+        .height = healthbar_rect.height,
+    };
+    float difference_ratio = health_view / PLAYER.max_health;
+    difference_rect.width *= difference_ratio;
+
+    DrawRectangleRounded(background_rect, 0.2, 16, UI_BACKGROUND_COLOR);
+    DrawRectangleRounded(difference_rect, 0.2, 16, WHITE);
+    DrawRectangleRounded(healthbar_rect, 0.2, 16, healthbar_color);
 }
 
 void update_obstacles(void) {
@@ -224,11 +297,11 @@ void update_player_collisions(void) {
 
     bool is_just_grounded = mtv.y < 0.0 && PLAYER.velocity.y > 0.0;
     if (is_just_grounded) {
-
         float speed = Vector2Length(PLAYER.velocity);
-        if (speed > 50.0) {
-            printf("Player hit the ground, you can decrease player health now\n");
-        }
+        float damage = speed - MAX_SPEED_WITHOUT_DAMAGE;
+        damage = damage < 0.0 ? 0.0 : damage;
+
+        PLAYER.health -= damage;
 
         PLAYER.velocity = Vector2Zero();
         PLAYER.is_grounded = true;
@@ -253,6 +326,9 @@ void load_game(void) {
     PLAYER.size = (Vector2){1.0, 2.0};
     PLAYER.speed = 15.0;
     PLAYER.jump_impulse = 30.0;
+
+    PLAYER.max_health = PLAYER_MAX_HEALTH;
+    PLAYER.health = PLAYER.max_health;
 
     N_OBSTACLES = 0;
 
@@ -328,6 +404,8 @@ void draw(void) {
     draw_player();
     draw_obstacles();
     EndMode2D();
+
+    draw_ui();
 
     EndDrawing();
 }
